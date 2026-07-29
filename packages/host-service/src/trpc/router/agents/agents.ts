@@ -6,11 +6,11 @@ import {
 	getAgentEffortSupport,
 } from "@superset/shared/agent-models";
 import {
+	applyEnvOverlay,
 	buildArgvCommand,
 	buildFishArgvCommand,
 	buildNuArgvCommand,
 	buildPromptCommandString,
-	envOverlayPrefix,
 	getShellFamily,
 	quoteFishString,
 	quoteNuString,
@@ -126,7 +126,14 @@ export function resolveHostAgentConfig(
 function resolveLaunchShellFamily(): ShellFamily {
 	try {
 		return getShellFamily(resolveLaunchShell(getTerminalBaseEnv()));
-	} catch {
+	} catch (error) {
+		// Expected before the startup env snapshot resolves; anything else is a
+		// real fault worth surfacing, since the fallback silently downgrades a
+		// fish/nu user to POSIX syntax.
+		console.warn(
+			"[buildTerminalAgentLaunch] could not resolve launch shell, falling back to POSIX syntax:",
+			error,
+		);
 		return "unknown";
 	}
 }
@@ -388,15 +395,20 @@ export function buildTerminalAgentLaunch(
 	const prompt = buildAttachmentBlock(input.prompt, resolvedAttachments);
 	const modelArgs = buildAgentModelArgs(config.presetId, input.model);
 	const effortArgs = buildAgentEffortArgs(config.presetId, input.effort);
+	const shellFamily = resolveLaunchShellFamily();
 	const command = buildAgentCommandString({
 		config,
 		rawPrompt: prompt,
 		modelArgs: [...modelArgs, ...effortArgs],
-		shellFamily: resolveLaunchShellFamily(),
+		shellFamily,
 	});
 	const modelEnv = buildAgentModelEnv(config.presetId, input.model);
 	return {
-		fullCommand: `${envOverlayPrefix({ ...config.env, ...modelEnv })}${command}`,
+		fullCommand: applyEnvOverlay({
+			env: { ...config.env, ...modelEnv },
+			command,
+			shellFamily,
+		}),
 		label: config.label,
 	};
 }

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
+	applyEnvOverlay,
+	buildFishArgvCommand,
+	buildNuArgvCommand,
 	buildPromptCommandString,
 	getShellFamily,
+	quoteFishString,
+	quoteNuString,
 	sanitizePromptForPty,
 } from "./agent-prompt-launch";
 
@@ -101,5 +106,93 @@ describe("getShellFamily", () => {
 			"posix",
 		);
 		expect(getShellFamily("  /bin/ZSH  ")).toBe("posix");
+	});
+});
+
+describe("quoteFishString", () => {
+	it("escapes the two sequences fish decodes inside single quotes", () => {
+		// Unlike bash, fish honors \\ and \' between single quotes, so leaving
+		// them bare collapses backslash pairs before the agent sees them.
+		expect(quoteFishString("a\\\\b")).toBe("'a\\\\\\\\b'");
+		expect(quoteFishString("it's")).toBe("'it\\'s'");
+	});
+
+	it("leaves everything else untouched", () => {
+		expect(quoteFishString('say "hi" $HOME `tick` 100%')).toBe(
+			"'say \"hi\" $HOME `tick` 100%'",
+		);
+	});
+});
+
+describe("quoteNuString", () => {
+	it("uses double quotes, since nu single quotes cannot express an apostrophe", () => {
+		expect(quoteNuString("it's")).toBe('"it\'s"');
+	});
+
+	it("escapes backslashes before quotes so a literal \\n survives", () => {
+		expect(quoteNuString("a\\\\b")).toBe('"a\\\\\\\\b"');
+		expect(quoteNuString('say "hi"')).toBe('"say \\"hi\\""');
+	});
+});
+
+describe("buildNuArgvCommand", () => {
+	it("prefixes the command with ^ so nu runs the external binary", () => {
+		// A quoted string in command position is a string literal to nu, not a
+		// command: 'claude' 'prompt' fails with nu::parser::parse_mismatch.
+		expect(buildNuArgvCommand(["claude", "--flag", "prompt"])).toBe(
+			'^"claude" "--flag" "prompt"',
+		);
+	});
+
+	it("returns an empty string for an empty argv", () => {
+		expect(buildNuArgvCommand([])).toBe("");
+	});
+});
+
+describe("buildFishArgvCommand", () => {
+	it("quotes every argument with fish rules", () => {
+		expect(buildFishArgvCommand(["claude", "--flag", "it's \\\\d"])).toBe(
+			"'claude' '--flag' 'it\\'s \\\\\\\\d'",
+		);
+	});
+});
+
+describe("applyEnvOverlay", () => {
+	it("returns the command unchanged when there is nothing to overlay", () => {
+		expect(
+			applyEnvOverlay({ env: {}, command: "'claude'", shellFamily: "posix" }),
+		).toBe("'claude'");
+	});
+
+	it("emits POSIX assignments for posix and unknown shells", () => {
+		expect(
+			applyEnvOverlay({
+				env: { API_KEY: "s3cret" },
+				command: "'claude'",
+				shellFamily: "posix",
+			}),
+		).toBe("API_KEY='s3cret' 'claude'");
+	});
+
+	it("quotes assignment values with fish rules under fish", () => {
+		expect(
+			applyEnvOverlay({
+				env: { WINDOWS_PATH: "C:\\\\tmp" },
+				command: "'claude'",
+				shellFamily: "fish",
+			}),
+		).toBe("WINDOWS_PATH='C:\\\\\\\\tmp' 'claude'");
+	});
+
+	it("wraps nu commands in with-env instead of an assignment prefix", () => {
+		// nu parses assignment values raw, so no quoting survives both `'` and
+		// `"` in one value. Inside with-env they parse as ordinary nu strings.
+		expect(
+			applyEnvOverlay({
+				env: { TOKEN: 'it\'s "quoted"' },
+				command: '^"claude"',
+				shellFamily: "nu",
+			}),
+		).toBe('with-env {"TOKEN": "it\'s \\"quoted\\""} { ^"claude" }');
 	});
 });

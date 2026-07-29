@@ -133,6 +133,41 @@ export function envOverlayPrefix(env: Record<string, string>): string {
 	return assignments.length > 0 ? `${assignments.join(" ")} ` : "";
 }
 
+/**
+ * Prefix a command with an environment overlay, using syntax the target shell
+ * accepts.
+ *
+ * fish and nu both honor `KEY=value command`, but not the values POSIX quoting
+ * produces: nu fails to parse bash's `'\''` idiom outright, and fish collapses
+ * `\\` inside single quotes. nu is also the one shell where assignment position
+ * takes string literals *raw* (no escape decoding), which leaves no quoting
+ * that survives both `'` and `"` in one value, so nu goes through `with-env`
+ * instead, where values parse as ordinary nu strings.
+ */
+export function applyEnvOverlay({
+	env,
+	command,
+	shellFamily,
+}: {
+	env: Record<string, string>;
+	command: string;
+	shellFamily: ShellFamily;
+}): string {
+	const entries = Object.entries(env);
+	if (entries.length === 0) return command;
+
+	if (shellFamily === "nu") {
+		const record = entries
+			.map(([key, value]) => `${quoteNuString(key)}: ${quoteNuString(value)}`)
+			.join(", ");
+		return `with-env {${record}} { ${command} }`;
+	}
+
+	const quote = shellFamily === "fish" ? quoteFishString : quoteSingleShell;
+	const assignments = entries.map(([key, value]) => `${key}=${quote(value)}`);
+	return `${assignments.join(" ")} ${command}`;
+}
+
 function joinCommand(command: string, suffix?: string): string {
 	return suffix ? `${command} ${suffix}` : command;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
 	buildPromptCommandString,
+	getShellFamily,
 	sanitizePromptForPty,
 } from "./agent-prompt-launch";
 
@@ -68,5 +69,37 @@ describe("buildPromptCommandString", () => {
 		expect(command).toBe(
 			"amp <<'SUPERSET_PROMPT_1234_X'\nSUPERSET_PROMPT_1234\nrm -rf /\nSUPERSET_PROMPT_1234_X",
 		);
+	});
+});
+
+describe("getShellFamily", () => {
+	it("groups heredoc-capable shells as posix", () => {
+		expect(getShellFamily("/bin/bash")).toBe("posix");
+		expect(getShellFamily("/bin/zsh")).toBe("posix");
+		expect(getShellFamily("/bin/sh")).toBe("posix");
+		expect(getShellFamily("/usr/bin/ksh")).toBe("posix");
+		expect(getShellFamily("/usr/bin/dash")).toBe("posix");
+	});
+
+	it("separates fish and nu, which need their own syntax", () => {
+		expect(getShellFamily("/opt/homebrew/bin/fish")).toBe("fish");
+		expect(getShellFamily("/opt/homebrew/bin/nu")).toBe("nu");
+		expect(getShellFamily("/usr/local/bin/nushell")).toBe("nu");
+	});
+
+	it("reports unrecognized shells as unknown rather than assuming posix", () => {
+		// Callers fall back to today's POSIX output for `unknown`, so a wrong
+		// guess here would emit syntax the shell can't parse.
+		expect(getShellFamily("/usr/bin/xonsh")).toBe("unknown");
+		expect(getShellFamily("/usr/bin/elvish")).toBe("unknown");
+		expect(getShellFamily("")).toBe("unknown");
+	});
+
+	it("handles bare names, Windows separators, and .exe suffixes", () => {
+		expect(getShellFamily("bash")).toBe("posix");
+		expect(getShellFamily("C:\\Program Files\\Git\\bin\\bash.exe")).toBe(
+			"posix",
+		);
+		expect(getShellFamily("  /bin/ZSH  ")).toBe("posix");
 	});
 });

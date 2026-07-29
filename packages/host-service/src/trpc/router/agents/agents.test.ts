@@ -180,6 +180,32 @@ describe("buildAgentCommandString", () => {
 		).toBe('^"claude" "--dangerously-skip-permissions"');
 	});
 
+	it("escapes backslashes and single quotes for fish (argv transport)", () => {
+		// fish honors `\\` and `\'` inside single quotes, unlike bash, so the
+		// POSIX form reaches the agent with backslash pairs collapsed.
+		expect(
+			buildAgentCommandString({
+				config: argvConfig,
+				rawPrompt: "match \\\\d+ in it's path",
+				randomId: RANDOM_ID,
+				shellFamily: "fish",
+			}),
+		).toBe(
+			"'claude' '--dangerously-skip-permissions' 'match \\\\\\\\d+ in it\\'s path'",
+		);
+	});
+
+	it("pipes the prompt into the agent under fish (stdin transport)", () => {
+		expect(
+			buildAgentCommandString({
+				config: stdinConfig,
+				rawPrompt: "do the thing",
+				randomId: RANDOM_ID,
+				shellFamily: "fish",
+			}),
+		).toBe("printf '%s' 'do the thing' | 'amp'");
+	});
+
 	it("falls back to POSIX output for unknown shells", () => {
 		expect(
 			buildAgentCommandString({

@@ -7,10 +7,12 @@ import {
 } from "@superset/shared/agent-models";
 import {
 	buildArgvCommand,
+	buildFishArgvCommand,
 	buildNuArgvCommand,
 	buildPromptCommandString,
 	envOverlayPrefix,
 	getShellFamily,
+	quoteFishString,
 	quoteNuString,
 	type ShellFamily,
 	sanitizePromptForPty,
@@ -176,13 +178,29 @@ export function buildAgentCommandString({
 		])}`;
 	}
 
+	if (shellFamily === "fish") {
+		// fish parses the POSIX argv form, but its single quotes honor `\\` and
+		// `\'`, so bash-style quoting silently collapses backslash pairs in the
+		// prompt. It has no heredocs either, so stdin transport pipes instead.
+		if (prompt === "" || config.promptTransport === "argv") {
+			const argv =
+				prompt === "" ? baseArgv : [...baseArgv, ...config.promptArgs, prompt];
+			return buildFishArgvCommand(argv);
+		}
+
+		return `printf '%s' ${quoteFishString(prompt)} | ${buildFishArgvCommand([
+			...baseArgv,
+			...config.promptArgs,
+		])}`;
+	}
+
 	if (prompt === "") {
 		return buildArgvCommand(baseArgv);
 	}
 
 	if (config.promptTransport === "argv") {
-		// Plain quoted positional, not the shared "$(cat <<…)" form: the command
-		// is typed into the user's configured shell, and fish has no heredocs.
+		// Plain quoted positional rather than the shared "$(cat <<…)" form, so
+		// `unknown` shells get the widest-compatibility syntax available.
 		return buildArgvCommand([...baseArgv, ...config.promptArgs, prompt]);
 	}
 

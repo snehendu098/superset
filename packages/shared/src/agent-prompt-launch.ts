@@ -83,6 +83,23 @@ export function buildArgvCommand(argv: string[]): string {
 }
 
 /**
+ * Quote a value as a fish string literal.
+ *
+ * fish is not POSIX here: it honors `\\` and `\'` *inside* single quotes,
+ * where bash honors nothing. Reusing `quoteSingleShell` therefore corrupts
+ * silently, collapsing every `\\` in a prompt to a single backslash before the
+ * agent ever sees it.
+ */
+export function quoteFishString(value: string): string {
+	return `'${value.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`;
+}
+
+/** Build a fish command line from an argv array. */
+export function buildFishArgvCommand(argv: string[]): string {
+	return argv.map(quoteFishString).join(" ");
+}
+
+/**
  * Quote a value as a nu string literal.
  *
  * nu's single quotes are fully literal, so a value containing `'` has no

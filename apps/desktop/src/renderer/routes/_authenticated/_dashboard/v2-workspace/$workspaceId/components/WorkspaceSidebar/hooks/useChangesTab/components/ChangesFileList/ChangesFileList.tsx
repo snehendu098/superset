@@ -71,6 +71,27 @@ export const ChangesFileList = memo(function ChangesFileList({
 		return groups;
 	}, [files]);
 
+	// Boundary reset keys track file identity, not just the count: swapping one
+	// path for another keeps the count identical, and a count-only key would
+	// strand a recovered section on the folders fallback. Hashed rather than
+	// joined so a large changeset doesn't allocate a huge string per refresh.
+	const resetKeys = useMemo(() => {
+		const keys = {} as Record<GroupKey, string>;
+		for (const key of GROUP_ORDER) {
+			const groupFiles = grouped[key];
+			let hash = 0x811c9dc5;
+			for (const file of groupFiles) {
+				const entry = `${file.path}:${file.status}`;
+				for (let i = 0; i < entry.length; i++) {
+					hash ^= entry.charCodeAt(i);
+					hash = Math.imul(hash, 0x01000193);
+				}
+			}
+			keys[key] = `${groupFiles.length}:${(hash >>> 0).toString(36)}`;
+		}
+		return keys;
+	}, [grouped]);
+
 	if (isLoading) {
 		return (
 			<div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -112,7 +133,7 @@ export const ChangesFileList = memo(function ChangesFileList({
 						{viewMode === "tree" ? (
 							<ChangesTreeErrorBoundary
 								sectionKind={key}
-								resetKey={`${key}:${groupFiles.length}`}
+								resetKey={`${key}:${resetKeys[key]}`}
 								fallback={
 									<ChangesFoldersView
 										files={groupFiles}
